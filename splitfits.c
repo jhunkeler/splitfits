@@ -6,6 +6,7 @@
 
 #define SPLITFITS_BLOCK 2880
 
+char *SPLITFITS_OUTDIR;
 struct SplitFITS {
     FILE *handle;
     char *path_origin;
@@ -18,39 +19,38 @@ struct SplitFITS {
 int splitfits_header_write(struct SplitFITS **ctx) {
     char *block;
     FILE *fp;
-    size_t count = 0;
+    size_t count = 1;
     size_t bytes;
+    size_t written;
 
     fp = fopen((*ctx)->path_header, "w+b");
     if (fp == NULL) {
         perror((*ctx)->path_header);
         return 1;
     }
-    fseek((*ctx)->handle, 0, SEEK_SET);
 
     block = calloc(SPLITFITS_BLOCK + 1, sizeof(char));
 
-    while (1) {
-        memset(block, ' ', SPLITFITS_BLOCK);
-        bytes = fread(block, sizeof(char), SPLITFITS_BLOCK, (*ctx)->handle);
+    written = 0;
+    bytes = fread(block, sizeof(char), SPLITFITS_BLOCK, (*ctx)->handle);
+    while (bytes > 0) {
+        written = fwrite(block, sizeof(char), SPLITFITS_BLOCK, fp);
+        if (written < 1) {
+            perror("short write");
+            return 1;
+        }
 
         if (strstr(block, "END     ") != NULL) {
             break;
         }
 
-        if (bytes == 0) {
-            break;
-        }
-
-        if (fwrite(block, sizeof(char), SPLITFITS_BLOCK, fp) == 0) {
-            perror("short write");
-            return 1;
-        }
+        bytes = fread(block, sizeof(char), SPLITFITS_BLOCK, (*ctx)->handle);
         count++;
     }
 
     (*ctx)->header_size = SPLITFITS_BLOCK * (count);
 
+    fflush(fp);
     fclose(fp);
     free(block);
     return 0;
@@ -68,8 +68,8 @@ int splitfits_data_write(struct SplitFITS **ctx) {
 
     block = calloc(SPLITFITS_BLOCK + 1, sizeof(char));
 
-    while (fread(block, sizeof(char), SPLITFITS_BLOCK, (*ctx)->handle) != 0) {
-        if (fwrite(block, sizeof(char), SPLITFITS_BLOCK, fp) == 0) {
+    while (fread(block, sizeof(char), SPLITFITS_BLOCK, (*ctx)->handle) > 0) {
+        if (fwrite(block, sizeof(char), SPLITFITS_BLOCK, fp) < 1) {
             perror("short write");
             return 1;
         }
@@ -146,7 +146,7 @@ int splitfits_combine(const char *headerfile, const char *datafile) {
     strcpy(outfile, headerfile);
     suffix = strstr(outfile, "_hdr.txt");
     if (suffix == NULL) {
-        fprintf(stderr, "%s: does not have the correct suffix (_hdr.txt)\n");
+        fprintf(stderr, "%s: does not have the correct suffix (_hdr.txt)\n", outfile);
         return 1;
     }
 
@@ -216,7 +216,9 @@ int main(int argc, char *argv[]) {
     int bad_files;
     char *prog;
 
+    SPLITFITS_OUTDIR = NULL;  // global
     prog = strrchr(argv[0], '/');
+
     if (prog == NULL) {
         prog = argv[0];
     } else {
@@ -224,36 +226,53 @@ int main(int argc, char *argv[]) {
     }
 
     if (argc < 2) {
-        printf("usage: %s {[-c HEADER_FILE DATA_FILE] | FILE(s)}", prog);
+        printf("usage: %s [-o DIR] {[-c HEADER_FILE DATA_FILE] | FILE(s)}\n", prog);
+        printf(" Options:\n");
+        printf("   -c  --combine    Reconstruct original file with _{hdr.txt,data.bin} files\n");
+        printf("   -o  --outdir     Path where output files are stored\n");
         exit(1);
     }
 
-    if (strcmp(argv[1], "-c") == 0) {
-        int combine;
-        const char *header_file = argv[2];
-        const char *data_file = argv[3];
-
-        if (argc < 4) {
-            fprintf(stderr, "-c requires two arguments (HEADER FILE and DATA_FILE)");
-            exit(1);
+    size_t inputs;
+    for (inputs = 1; inputs < argc; inputs++) {
+        if (strcmp(argv[inputs], "-o") == 0 || strcmp(argv[inputs], "--outdir") == 0) {
+            inputs++;
+            if (access(argv[inputs], R_OK | W_OK | X_OK) != 0) {
+                fprintf(stderr, "%s: output directory does not exist or is not writable\n", argv[inputs]);
+            }
+            SPLITFITS_OUTDIR = strdup(argv[inputs]);
         }
 
-        if (access(header_file, F_OK) != 0) {
-            fprintf(stderr, "%s: header file does not exist\n", header_file);
-            exit(1);
-        }
+        if (strcmp(argv[inputs], "-c") == 0 || strcmp(argv[inputs], "--combine") == 0) {
+            if (argc < 4) {
+                fprintf(stderr, "-c|--combine requires two arguments (HEADER FILE and DATA_FILE)");
+                exit(1);
+            }
 
-        if (access(data_file, F_OK) != 0) {
-            fprintf(stderr, "%s: data file does not exist\n", header_file);
-            exit(1);
-        }
+            int combine;
+            inputs++;
+            const char *header_file = argv[inputs];
+            inputs++;
+            const char *data_file = argv[inputs];
 
-        combine = splitfits_combine(header_file, data_file);
-        exit(combine);
+            if (access(header_file, F_OK) != 0) {
+                fprintf(stderr, "%s: header file does not exist\n", header_file);
+                exit(1);
+            }
+
+            if (access(data_file, F_OK) != 0) {
+                fprintf(stderr, "%s: data file does not exist\n", header_file);
+                exit(1);
+            }
+
+            combine = splitfits_combine(header_file, data_file);
+            exit(combine);
+        }
+        break;
     }
 
     bad_files = 0;
-    for (size_t i = 1; i < argc; i++) {
+    for (size_t i = inputs; i < argc; i++) {
         if (access(argv[i], F_OK) != 0) {
             fprintf(stderr, "%s: does not exist", argv[i]);
             bad_files = 1;
@@ -275,6 +294,10 @@ int main(int argc, char *argv[]) {
 
         splitfits_show(fits);
         splitfits_free(fits);
+    }
+
+    if (SPLITFITS_OUTDIR != NULL) {
+        free(SPLITFITS_OUTDIR);
     }
     return 0;
 }
