@@ -8,6 +8,12 @@
 #define FITS_BLOCK 2880
 #define FITS_RECORD 80
 
+/**
+ * Check for FITS header keyword in data block
+ * @param block of memory of size FITS_BLOCK
+ * @param key keyword to search for
+ * @return 0=not found, 1=found
+ */
 int has_key(char *block, const char *key) {
     for (size_t i = 0; i < FITS_BLOCK; i += FITS_RECORD) {
         char record[FITS_RECORD];
@@ -20,6 +26,11 @@ int has_key(char *block, const char *key) {
     return 0;
 }
 
+/**
+ * Check if a data block is a FITS header
+ * @param block
+ * @return 0=no, 1=yes
+ */
 int is_header_start(char *block) {
     if (has_key(block, "SIMPLE") || has_key(block, "XTENSION")) {
         return 1;
@@ -27,6 +38,11 @@ int is_header_start(char *block) {
     return 0;
 }
 
+/**
+ * Check if a data block is the end of a FITS header
+ * @param block
+ * @return 0=no, 1=yes
+ */
 int is_header_end(char *block) {
     if (has_key(block, "END") && block[FITS_BLOCK - 1] == ' ') {
         return 1;
@@ -34,6 +50,11 @@ int is_header_end(char *block) {
     return 0;
 }
 
+/**
+ * Obtain the last element of a filesystem path
+ * @param path
+ * @return
+ */
 char *get_basename(char *path) {
     char *sep;
     if ((sep = strrchr(path, '/')) == NULL) {
@@ -44,6 +65,11 @@ char *get_basename(char *path) {
     return path;
 }
 
+/**
+ * Obtain the parent directory of a file path
+ * @param path
+ * @return
+ */
 char *get_dirname(char *path) {
     char *sep;
     if ((sep = strrchr(path, '/')) == NULL) {
@@ -53,16 +79,19 @@ char *get_dirname(char *path) {
     return path;
 }
 
-struct HeaderBlock {
-    size_t *start;
-    size_t *stop;
-    size_t num_inuse;
-    size_t num_alloc;
+/**
+ * Describe the start/stop offsets for each frame in a FITS file
+ */
+struct DataFrame {
+    size_t *start;      // Array of starting offsets
+    size_t *stop;       // Array of stopping (end) offsets
+    size_t num_inuse;   // Number of records used
+    size_t num_alloc;   // Number of records allocated
 };
 
-struct HeaderBlock *headerblock_init() {
-    struct HeaderBlock *ctx;
-    ctx = calloc(1, sizeof(struct HeaderBlock));
+struct DataFrame *dataframe_init() {
+    struct DataFrame *ctx;
+    ctx = calloc(1, sizeof(struct DataFrame));
     ctx->num_inuse = 0;
     ctx->num_alloc = 2;
 
@@ -71,7 +100,7 @@ struct HeaderBlock *headerblock_init() {
     return ctx;
 }
 
-void headerblock_new(struct HeaderBlock **ctx) {
+void dataframe_new(struct DataFrame **ctx) {
     size_t *tmp;
     tmp = realloc((*ctx)->start, ((*ctx)->num_alloc + 1) * sizeof(size_t *));
     if (tmp == NULL) {
@@ -99,15 +128,14 @@ int split_file(const char *_filename, const char *dest) {
     char _mapfile[PATH_MAX];
     char *mapfile;
     char *block;
-    size_t bytes_read, bytes_write, bytes_total;
+    size_t bytes_read, bytes_write;
     size_t block_size;
-    int i, done, header_block, data_block;
-    struct HeaderBlock *headerBlock, *hb;
-
+    size_t filepos;
+    int i, done;
+    struct DataFrame *dataFrame, *hb;
 
     bytes_read = 0;
     bytes_write = 0;
-    bytes_total = 0;
     i = 0;
     done = 0;
     block = calloc(FITS_BLOCK, sizeof(char));
@@ -116,12 +144,9 @@ int split_file(const char *_filename, const char *dest) {
     mapfile = _mapfile;
     sprintf(mapfile, "%s/%s.map", dest ? dest : ".", _filename);
 
-    size_t filepos;
-    header_block = 0;
-    data_block = 0;
     filepos = 0;
     block_size = FITS_BLOCK;
-    headerBlock = headerblock_init();
+    dataFrame = dataframe_init();
 
     size_t off;
     off = 0;
@@ -136,42 +161,42 @@ int split_file(const char *_filename, const char *dest) {
             }
 
             if (is_header_start(block)) {
-                headerBlock->start[headerBlock->num_inuse] = filepos;
+                dataFrame->start[dataFrame->num_inuse] = filepos;
             }
 
             if (is_header_end(block)) {
                 filepos = ftell(fp_in);
-                headerBlock->stop[headerBlock->num_inuse] = filepos;
+                dataFrame->stop[dataFrame->num_inuse] = filepos;
                 break;
             }
         }
         off += 2;
 
         if (!done) {
-            headerblock_new(&headerBlock);
+            dataframe_new(&dataFrame);
         }
     }
 
     size_t last;
-    for (off = 0; off < headerBlock->num_inuse; off += 2) {
+    for (off = 0; off < dataFrame->num_inuse; off += 2) {
         if (off < 2) {
             continue;
         }
 
         size_t size;
-        size = headerBlock->start[off] - headerBlock->stop[off - 2];
+        size = dataFrame->start[off] - dataFrame->stop[off - 2];
         last = off - 1;
 
-        headerBlock->start[last] = headerBlock->stop[off - 2];
-        headerBlock->stop[last] = headerBlock->start[off];
+        dataFrame->start[last] = dataFrame->stop[off - 2];
+        dataFrame->stop[last] = dataFrame->start[off];
     }
-    headerBlock->start[off - 1] = headerBlock->stop[off - 2];
+    dataFrame->start[off - 1] = dataFrame->stop[off - 2];
     fseek(fp_in, 0L, SEEK_END);
-    headerBlock->stop[off - 1] = ftell(fp_in);
+    dataFrame->stop[off - 1] = ftell(fp_in);
 
     printf("info:\n");
-    for (size_t d = 0; d < headerBlock->num_inuse; d++) {
-        printf("%zu: start: %zu, stop: %zu\n", d, headerBlock->start[d], headerBlock->stop[d]);
+    for (size_t d = 0; d < dataFrame->num_inuse; d++) {
+        printf("%zu: start: %zu, stop: %zu\n", d, dataFrame->start[d], dataFrame->stop[d]);
     }
 
     done = 0;
@@ -179,7 +204,7 @@ int split_file(const char *_filename, const char *dest) {
 
     size_t data_size;
     data_size = 0;
-    for (off = 0; off < headerBlock->num_inuse; off++) {
+    for (off = 0; off < dataFrame->num_inuse; off++) {
         char path[PATH_MAX];
         char filename[PATH_MAX];
         char *ext;
@@ -205,7 +230,7 @@ int split_file(const char *_filename, const char *dest) {
             *ext = '\0';
         }
 
-        if (headerBlock->start[off] == headerBlock->stop[off]) {
+        if (dataFrame->start[off] == dataFrame->stop[off]) {
             printf("skipped %d: identical begin/end offset\n", i);
             i++;
             continue;
@@ -219,11 +244,11 @@ int split_file(const char *_filename, const char *dest) {
         block_size = FITS_BLOCK;
 
         fprintf(map_out, "%zu:", filepos);
-        fseek(fp_in, headerBlock->start[off], SEEK_SET);
+        fseek(fp_in, dataFrame->start[off], SEEK_SET);
         while(1) {
             filepos = ftell(fp_in);
 
-            if (filepos == headerBlock->stop[off]) {
+            if (filepos == dataFrame->stop[off]) {
                 break;
             }
 
@@ -241,7 +266,9 @@ int split_file(const char *_filename, const char *dest) {
         }
 
         fclose(fp_out);
-        fprintf(map_out, "%zu:%s\n", filepos, outfile);
+
+        char *bname = get_basename(outfile);
+        fprintf(map_out, "%zu:%s\n", filepos, bname);
         i++;
     }
     fclose(map_out);
