@@ -5,6 +5,8 @@
 #include <unistd.h>
 #include <errno.h>
 
+#define OP_SPLIT 0
+#define OP_COMBINE 1
 #define FITS_BLOCK 2880
 #define FITS_RECORD 80
 
@@ -96,11 +98,21 @@ struct DataFrame {
 struct DataFrame *dataframe_init() {
     struct DataFrame *ctx;
     ctx = calloc(1, sizeof(struct DataFrame));
+    if (ctx == NULL) {
+        perror("DataFrame");
+        exit(1);
+    }
+
     ctx->num_inuse = 0;
     ctx->num_alloc = 2;
 
     ctx->start = calloc(ctx->num_alloc, sizeof(size_t));
     ctx->stop = calloc(ctx->num_alloc, sizeof(size_t));
+
+    if (ctx->start == NULL || ctx->stop == NULL) {
+        perror("could not allocate array");
+        exit(1);
+    }
     return ctx;
 }
 
@@ -150,7 +162,13 @@ int split_file(const char *_filename, const char *dest) {
 
     i = 0;
     done = 0;
+
     block = calloc(FITS_BLOCK, sizeof(char));
+    if (block == NULL) {
+        perror("block buffer");
+        exit(1);
+    }
+
     fp_in = fopen(_filename, "rb");
     if (fp_in == NULL) {
         perror(_filename);
@@ -264,7 +282,6 @@ int split_file(const char *_filename, const char *dest) {
         // Finalize output file name
         sprintf(outfile + strlen(outfile), ".part_%d", i);
 
-        printf("Creating: %s\n", outfile);
         fp_out = fopen(outfile, "w+b");
         if (fp_out == NULL) {
             perror(outfile);
@@ -299,6 +316,7 @@ int split_file(const char *_filename, const char *dest) {
             }
         }
 
+        printf("Writing: %s\n", outfile);
         fclose(fp_out);
 
         // Record output file offset and basename in the map
@@ -324,12 +342,17 @@ int combine_file(const char *_filename, const char *dest) {
     char path[PATH_MAX];
     char outfile[PATH_MAX];
     char *filename;
+    char *dirpath;
     char *block;
     char *ext;
     FILE *fp_in;
     FILE *fp_out;
 
     block = calloc(FITS_BLOCK, sizeof(char));
+    if (block == NULL) {
+        perror("block buffer");
+        exit(1);
+    }
 
     fp_in = fopen(_filename, "r");
     if (fp_in == NULL) {
@@ -338,9 +361,21 @@ int combine_file(const char *_filename, const char *dest) {
     }
 
     filename = calloc(PATH_MAX, sizeof(char));
+    if (filename == NULL) {
+        perror("filename");
+        exit(1);
+    }
+
+    dirpath = calloc(PATH_MAX, sizeof(char));
+    if (dirpath == NULL) {
+        perror("dirpath");
+        exit(1);
+    }
 
     strcpy(filename, _filename);
+    strcpy(dirpath, _filename);
     filename = get_basename(filename);
+    dirpath = get_dirname(dirpath);
 
     if (dest == NULL) {
         strcpy(path, ".");
@@ -361,17 +396,29 @@ int combine_file(const char *_filename, const char *dest) {
         exit(1);
     }
 
-    printf("Writing: %s\n", outfile);
+    printf("Map: %s\n", _filename);
     while (fscanf(fp_in, "%s\n", buffer) > 0) {
         char *mark;
         char *name;
         FILE *fp_tmp;
 
+        // Allocate enough room to store path to file name stored in map
+        name = calloc(PATH_MAX, sizeof(char));
+        if (name == NULL) {
+            perror("name buffer");
+            exit(1);
+        }
+
+        // Append the dirname where the map file was located
+        strcpy(name, dirpath);
+
         // Get .part_N file name
         mark = strrchr(buffer, ':');
         if (mark != NULL) {
             mark++;
-            name = strdup(mark);
+            // Append the file name to the path
+            strcat(name, "/");
+            strcat(name, mark);
         }
 
         // Open .part_N for reading
@@ -395,73 +442,60 @@ int combine_file(const char *_filename, const char *dest) {
         }
         fclose(fp_tmp);
     }
+    printf("Writing: %s\n", outfile);
     fclose(fp_in);
     fclose(fp_out);
     free(block);
     return 0;
 }
 
+void usage(char *program_name) {
+    printf("usage: %s [-o DIR] [-c] {FILE(s)}\n", program_name);
+    printf(" Options:\n");
+    printf("   -h  --help       This message\n");
+    printf("   -c  --combine    Reconstruct original file using .part_map data\n");
+    printf("   -o  --outdir     Path where output files are stored\n");
+}
+
 int main(int argc, char *argv[]) {
     int bad_files;
     char *prog;
     char *outdir;
+    int op_mode;
 
     // Set program name
     prog = get_basename(argv[0]);
 
     // Output directory (default of NULL indicates "current directory");
     outdir = NULL;
+    op_mode = OP_SPLIT;
 
     // Check program argument count
     if (argc < 2) {
-        printf("usage: %s [-o DIR] {[-c MAP_FILE] | FILE(s)}\n", prog);
-        printf(" Options:\n");
-        printf("   -c  --combine    Reconstruct original file using .part_map data\n");
-        printf("   -o  --outdir     Path where output files are stored\n");
+        usage(prog);
         exit(1);
     }
-
 
     // Parse program arguments
     size_t inputs;
     for (inputs = 1; inputs < argc; inputs++) {
         // User-defined output directory
-        if (strcmp(argv[inputs], "-o") == 0 || strcmp(argv[inputs], "--outdir") == 0) {
+        if (strcmp(argv[inputs], "-h") == 0 || strcmp(argv[inputs], "--help") == 0) {
+            usage(prog);
+            exit(0);
+        } else if (strcmp(argv[inputs], "-o") == 0 || strcmp(argv[inputs], "--outdir") == 0) {
             inputs++;
             if (access(argv[inputs], R_OK | W_OK | X_OK) != 0) {
                 fprintf(stderr, "%s: output directory does not exist or is not writable\n", argv[inputs]);
             }
             outdir = strdup(argv[inputs]);
-            continue;
+        } else if (strcmp(argv[inputs], "-c") == 0 || strcmp(argv[inputs], "--combine") == 0) {
+            // User wants to reconstruct a FITS file using a .part_map
+            op_mode = OP_COMBINE;
+        } else {
+            // Arguments beyond this point are considered input file paths
+            break;
         }
-
-        // User wants to reconstruct a FITS file using a .part_map
-        if (strcmp(argv[inputs], "-c") == 0 || strcmp(argv[inputs], "--combine") == 0) {
-            if (argc < 3) {
-                fprintf(stderr, "-c|--combine requires an argument (MAP file)");
-                exit(1);
-            }
-
-            int combine;
-            const char *map_file;
-
-            // Shift to next argument
-            inputs++;
-
-            // Get part map filename
-            map_file = argv[inputs];
-
-            // Make sure it exists
-            if (access(map_file, F_OK) != 0) {
-                fprintf(stderr, "%s: data file does not exist\n", map_file);
-                exit(1);
-            }
-
-            // Reconstruct FITS file
-            combine = combine_file(map_file, outdir);
-            exit(combine);
-        }
-        break;
     }
 
     // Make sure all input files exist
@@ -485,9 +519,13 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Split all input files
+    // Split or combine files based on user input
     for (size_t i = inputs; i < argc; i++) {
-        split_file(argv[i], outdir);
+        if (op_mode != OP_COMBINE) {
+            split_file(argv[i], outdir);
+        } else {
+            combine_file(argv[i], outdir);
+        }
     }
 
     // Clean up
