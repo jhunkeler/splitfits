@@ -20,6 +20,7 @@ $ make install
 
 ## Without cmake
 ```sh
+$ sed "s/@GIT_VERSION@/$(git describe --always --long --tags)/" version.h.in > version.h
 $ cc -o splitfits splitfits.c
 $ ./test.sh
 $ install -m 755 splitfits /usr/local/bin
