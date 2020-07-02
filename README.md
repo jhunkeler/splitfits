@@ -13,14 +13,18 @@ CFITSIO is a full-featured library and has quite a few system dependencies. `spl
 $ mkdir build
 $ cd build
 $ cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local
+$ make
+$ make check
 $ make install
 ```
 
 ## Without cmake
 ```sh
 $ cc -o splitfits splitfits.c
+$ ./test.sh
 $ install -m 755 splitfits /usr/local/bin
 ```
+
 
 # Usage
 

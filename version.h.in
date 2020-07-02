@@ -1,0 +1,6 @@
+#ifndef SPLITFITS_VERSION_H
+#define SPLITFITS_VERSION_H
+
+#define SPLITFITS_VERSION "@GIT_VERSION@"
+
+#endif
