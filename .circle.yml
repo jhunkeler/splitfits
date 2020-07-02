@@ -1,0 +1,23 @@
+jobs:
+  build:
+    steps:
+      - checkout
+      - run: mkdir build && cd build
+      - run: cmake ..
+      - run: make
+  test:
+    steps:
+      - checkout
+      - run: mkdir build && cd build
+      - run: cmake ..
+      - run: make
+      - run: make check
+
+workflows:
+  version: 2
+  build-and-test:
+    jobs:
+      - build
+      - test
+          requires:
+            - build
