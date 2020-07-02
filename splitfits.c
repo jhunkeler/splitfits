@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include "version.h"
 
 #define OP_SPLIT 0
 #define OP_COMBINE 1
@@ -486,6 +487,7 @@ void usage(char *program_name) {
     printf("   -h  --help       This message\n");
     printf("   -c  --combine    Reconstruct original file using .part_map data\n");
     printf("   -o  --outdir     Path where output files are stored\n");
+    printf("   -V  --version    Display version\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -532,6 +534,10 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[inputs], "-c") == 0 || strcmp(argv[inputs], "--combine") == 0) {
             // User wants to reconstruct a FITS file using a .part_map
             op_mode = OP_COMBINE;
+        } else if (strcmp(argv[inputs], "-V") == 0 || strcmp(argv[inputs], "--version") == 0) {
+            // Dump version and exit
+            puts(SPLITFITS_VERSION);
+            exit(0);
         } else {
             // Arguments beyond this point are considered input file paths
             break;
