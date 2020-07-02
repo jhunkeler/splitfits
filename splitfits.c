@@ -4,11 +4,41 @@
 #include <limits.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #define OP_SPLIT 0
 #define OP_COMBINE 1
 #define FITS_BLOCK 2880
 #define FITS_RECORD 80
+
+static int mkdirs(const char *_path, mode_t mode) {
+    const char *delim;
+    char *parts;
+    char *token;
+    char path[PATH_MAX];
+    int status;
+
+    delim = "/";
+    parts = strdup(_path);
+    if (parts == NULL) {
+        perror(parts);
+        exit(1);
+    }
+
+    memset(path, '\0', PATH_MAX);
+
+    status = -1;
+    token = NULL;
+    while ((token = strsep(&parts, delim)) != NULL) {
+        strcat(path, token);
+        strcat(path, delim);
+        status = mkdir(path, mode);
+        if (status < 0) {
+            break;
+        }
+    }
+    return status;
+}
 
 /**
  * Check for FITS header keyword in data block
@@ -151,6 +181,8 @@ int split_file(const char *_filename, const char *dest) {
     FILE *fp_out;
     FILE *map_out;
     char outfile[PATH_MAX];
+    char path[PATH_MAX];
+    char filename[PATH_MAX];
     char _mapfile[PATH_MAX];
     char *mapfile;
     char *block;
@@ -176,7 +208,8 @@ int split_file(const char *_filename, const char *dest) {
     }
 
     mapfile = _mapfile;
-    sprintf(mapfile, "%s/%s.part_map", dest ? dest : ".", _filename);
+    strcpy(filename, _filename);
+    sprintf(mapfile, "%s/%s.part_map", dest ? dest : ".", get_basename(filename));
 
     block_size = FITS_BLOCK;
     dataFrame = dataframe_init();
@@ -241,8 +274,6 @@ int split_file(const char *_filename, const char *dest) {
 
     // Read offset from the input files and write it to its respective .part_N file
     for (off = 0; off < dataFrame->num_inuse; off++) {
-        char path[PATH_MAX];
-        char filename[PATH_MAX];
         char *ext;
 
         // Get dirname of input path
@@ -263,7 +294,7 @@ int split_file(const char *_filename, const char *dest) {
         }
 
         // Create output file name
-        sprintf(outfile, "%s/%s", path, filename);
+        sprintf(outfile, "%s/%s", path, get_basename(filename));
 
         // Strip file extension from output file
         if ((ext = strrchr(outfile, '.')) == NULL) {
@@ -485,8 +516,17 @@ int main(int argc, char *argv[]) {
             exit(0);
         } else if (strcmp(argv[inputs], "-o") == 0 || strcmp(argv[inputs], "--outdir") == 0) {
             inputs++;
+            if (argv[inputs] == NULL) {
+                fprintf(stderr, "-o requires an argument\n");
+                usage(prog);
+                exit(1);
+            }
             if (access(argv[inputs], R_OK | W_OK | X_OK) != 0) {
-                fprintf(stderr, "%s: output directory does not exist or is not writable\n", argv[inputs]);
+                printf("Creating output directory: %s\n", argv[inputs]);
+                if (mkdirs(argv[inputs], 0755) < 0) {
+                    perror(outdir);
+                    exit(1);
+                }
             }
             outdir = strdup(argv[inputs]);
         } else if (strcmp(argv[inputs], "-c") == 0 || strcmp(argv[inputs], "--combine") == 0) {
@@ -496,6 +536,13 @@ int main(int argc, char *argv[]) {
             // Arguments beyond this point are considered input file paths
             break;
         }
+    }
+
+    // Make sure we have at least one file to process
+    if (argc - inputs == 0) {
+        fprintf(stderr, "At least one input FILE is required\n");
+        usage(prog);
+        exit(1);
     }
 
     // Make sure all input files exist
