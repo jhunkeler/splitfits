@@ -2,12 +2,8 @@
 set -o pipefail
 
 RTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-test_program="${RTDIR}/splitfits"
-test_program_version="$(git describe --always --tags --long)"
-test_data="${RTDIR}/data"
-test_data_remote=https://nx.astroconda.org/repository
-test_data_remote_auth=${test_data_remote_auth:-}
-test_data_upload="generic/spb-splitfits/${test_program_version}"
+
+source "${RTDIR}"/test_config.sh
 
 get_data_exists() {
     local url
