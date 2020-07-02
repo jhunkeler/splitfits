@@ -1,0 +1,34 @@
+version: 2
+jobs:
+  build:
+    machine:
+      image: ubuntu-1604:202004-01
+
+    steps:
+      - checkout
+      - run: |
+          set -xe
+          mkdir build && cd build
+          cmake ..
+          make
+
+  test:
+    machine:
+      image: ubuntu-1604:202004-01
+
+    steps:
+      - checkout
+      - run: |
+          set -xe
+          mkdir build && cd build
+          cmake ..
+          make
+          make check
+
+workflows:
+  version: 2
+
+  build-and-test:
+    jobs:
+      - build
+      - test

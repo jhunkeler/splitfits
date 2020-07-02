@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.1...3.16)
 project(splitfits C)
 
 set(CMAKE_C_STANDARD 99)
@@ -12,4 +12,4 @@ file(COPY ${TEST_FRAMEWORK} DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 add_custom_target(check "${CMAKE_CURRENT_BINARY_DIR}/test.sh")
 
 install(TARGETS splitfits
-        RUNTIME)
+	RUNTIME DESTINATION bin)
