@@ -1,8 +1,6 @@
 test_splitfits_data1() {
     local datafile
-    local retval
 
-    retval=0
     datafile=$(get_data generic/fits/sample.fits)
     [[ ! -f ${datafile} ]] && return 1
 
@@ -10,15 +8,12 @@ test_splitfits_data1() {
         return 1
     fi
 
-    set +x
-    return $retval
+    return 0
 }
 
 test_splitfits_combine_data1() {
     local datafile
-    local retval
 
-    retval=0
     datafile=$(get_data generic/fits/sample.fits)
     [[ ! -f ${datafile} ]] && return 1
 
@@ -30,6 +25,5 @@ test_splitfits_combine_data1() {
         return 1
     fi
 
-    set +x
-    return $retval
+    return 0
 }
