@@ -35,6 +35,7 @@ usage: splitfits [-o DIR] [-c] {FILE(s)}
    -h  --help       This message
    -c  --combine    Reconstruct original file using .part_map data
    -o  --outdir     Path where output files are stored
+   -V  --version    Display version
 ```
 
 # Examples
