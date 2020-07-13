@@ -1,7 +1,7 @@
 test_splitfits_data1() {
     local datafile
 
-    datafile=$(get_data generic/fits/sample.fits)
+    datafile=$(nexus_raw_download repository/generic/fits/sample.fits)
     [[ ! -f ${datafile} ]] && return 1
 
     if ! ${test_program} -o ${test_case} ${datafile}; then
@@ -14,7 +14,7 @@ test_splitfits_data1() {
 test_splitfits_combine_data1() {
     local datafile
 
-    datafile=$(get_data generic/fits/sample.fits)
+    datafile=$(nexus_raw_download repository/generic/fits/sample.fits)
     [[ ! -f ${datafile} ]] && return 1
 
     if ! ${test_program} -o ${test_case} ${datafile}; then
