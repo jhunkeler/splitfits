@@ -5,97 +5,6 @@ RTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 source "${RTDIR}"/test_config.sh
 
-get_data_exists() {
-    local url
-    local response
-
-    url="${test_data_remote}/$1"
-    if [[ -z $url ]]; then
-        echo "get_data_exists: requires a path relative to $test_data_remote"
-        exit 1
-    fi
-
-    response=$(curl -s --head "$url" | head -n 1 | awk '{print $2}')
-    if (( $response != 200 )); then
-        return 1;
-    fi
-    return 0;
-}
-
-get_data() {
-    local url
-    local filename
-
-    if [[ ! -d "${test_data}" ]]; then
-        mkdir -p "${test_data}"
-    fi
-
-    url="${test_data_remote}/$1"
-    if [[ -z $url ]]; then
-        echo "get_data: requires a path relative to $test_data_remote"
-        exit 1
-    fi
-
-    filename=$(basename $url)
-    if ! get_data_exists "$1"; then
-        echo "${url}: not found on remote server" >&2
-        return 1
-    fi
-
-    if ! (cd $test_data && curl -L -O "$url"); then
-        echo "Could not download data" >&2
-        return 1
-    fi
-
-    echo "$test_data/$filename";
-}
-
-put_data() {
-    local url
-    local filename
-
-    url="${test_data_remote}/$2"
-    filename="$1"
-
-    if [[ -z $url ]]; then
-        echo "put_data: requires a path relative to $test_data_remote"
-        return 1
-    fi
-
-    if ! curl -s --user "${test_data_remote_auth}" --upload-file "${filename}" "${url}/${filename}"; then
-        echo "Could not upload '${filename}' to '${url}'" >&2
-        return 1
-    fi
-
-    return 0
-}
-
-put_result() {
-    local src;
-    local dest;
-    src="$1"
-    dest="$2"
-
-    if [[ ! -d "$src" ]]; then
-        echo "push_result: source directory does not exist: ${src}" >&2
-        return 1
-    fi
-
-    if [[ -z "$dest" ]]; then
-        echo "push_result: requires a destination relative to ${test_data_remote}" >&2
-        return 1
-    fi
-
-    for f in $(find "${src}" -type f); do
-        echo "Uploading '$f' to '$dest'"
-        if ! put_data "$f" "${dest}"; then
-            echo "Failed uploading '$src' to '$dest'" >&2
-            return 1
-        fi
-    done;
-    return 0
-}
-
 read_tests() {
     for f in "${RTDIR}"/tests/test_*; do
         source "$f" || return 0
@@ -142,11 +51,10 @@ run_tests() {
     done
 
     # Upload all artifacts in all test directories
-    if [[ -n "$test_data_remote_auth" ]]; then
+    if [[ -n "$NEXUS_AUTH" ]]; then
         echo
-        for (( i=0; i < ${total_tests}; i++ )); do
-            test_case="${tests[i]}"
-            put_result ${test_case} ${test_data_upload}
+        for test_case in "${tests[@]}"; do
+            nexus_raw_upload_dir "${test_case}" "${test_data_upload}"
         done
     fi
 }
@@ -162,7 +70,22 @@ show_stats() {
     printf "\n%d test(s): %d passed, %d failed\n" ${total_tests} ${total_passed} ${total_failed}
 }
 
+setup_deps() {
+    if [[ ! -d nexus_bash ]]; then
+        git clone https://github.com/jhunkeler/nexus_bash
+    fi
+
+    if [[ -n "$test_dep_nexus_bash_rev" ]]; then
+        (cd nexus_bash && git checkout $test_dep_nexus_bash_rev) &>/dev/null
+    else
+        (cd nexus_bash && git pull) &>/dev/null
+    fi
+
+    source nexus_bash/nexus_bash.sh
+}
+
 # main program
+setup_deps
 check_runtime
 
 if read_tests; then
