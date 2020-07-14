@@ -8,6 +8,11 @@ test_splitfits_data1() {
         return 1
     fi
 
+    find . -regex '.*\.part_[0-9]+' | xargs -I'{}' cat '{}' >> streamed.fits
+    if ! diff ${datafile} streamed.fits; then
+        return 1
+    fi
+
     return 0
 }
 
